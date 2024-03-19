@@ -55,12 +55,45 @@ export default class App extends Component {
             balance: '',
             count_notification: '',
             count_message: '',
+            next_page_url: null,
+            refreshing: false
 
         };
 
     }
 
     static contextType = AuthContext;
+
+
+    componentDidMount() {
+        const { navigation } = this.props;
+        this.getJobTenderInfo();
+        this.getNotificationsCount();
+        this.focusListener = navigation.addListener("focus", () => {
+            this.getJobTenderInfo();
+            this.getNotificationsCount();
+
+        });
+
+    }
+
+    componentWillUnmount() {
+        // Remove the event listener
+        if (this.focusListener) {
+            this.focusListener();
+        }
+
+    }
+
+    handleRefresh = () => {
+        this.setState({
+            refreshing: true
+        })
+        this.getJobTenderInfo();
+    };
+
+
+
 
 
     getJobTenderInfo = async () => {
@@ -84,28 +117,47 @@ export default class App extends Component {
 
             }).then((response) => {
                 return response.json()
-            }).then(async (response) => {
+            }).then(async (result) => {
 
-
-                await this.setState({
+                this.setState({
                     loaded_tender: false,
                 })
-
-
-                if (response.status === true) {
+                if (result?.status === true) {
                     this.setState({
-                        job_tender_info: response.data.tender.data,
-                        balance: response.data.balance
-
+                        balance: result?.data?.balance,
+                        loaded_tender: false,
                     })
-                } else {
-                    this.setState({
-                        job_tender_info: [],
 
-                    })
+                    let nextPageUrl_ = null;
+
+
+                    if (result?.data?.tender?.data?.length > 0) {
+                        this.setState({
+                            job_tender_info: result?.data?.tender?.data
+                        })
+                    } else {
+                        this.setState({
+                            job_tender_info: []
+                        })
+                    }
+                    if (result?.data?.tender?.next_page_url !== undefined && result?.data?.tender?.next_page_url !== null) {
+                        nextPageUrl_ = result?.data?.tender?.next_page_url
+                        this.setState({
+                            next_page_url: nextPageUrl_
+                        })
+                    } else {
+                        this.setState({
+                            next_page_url: null
+                        })
+                        console.log("No more pages to load");
+                    }
+
+                    console.log(nextPageUrl_, 'next_page_url');
                 }
 
-
+                this.setState({
+                    refreshing: false
+                })
 
 
             })
@@ -114,27 +166,276 @@ export default class App extends Component {
     }
 
 
-    componentDidMount() {
-        const { navigation } = this.props;
-        this.getJobTenderInfo();
-        this.getNotificationsCount();
-        this.focusListener = navigation.addListener("focus", () => {
-            this.getJobTenderInfo();
-            this.getNotificationsCount();
+    loadMoreTenders = async () => {
+        let userToken = await AsyncStorage.getItem('userToken');
+        let AuthStr = 'Bearer ' + userToken;
+
+        if (!this.state.next_page_url) {
+            return false;
+        }
+
+        console.log(this.state.next_page_url, 'next_page');
+        try {
+            fetch(this.state.next_page_url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': AuthStr,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+
+            }).then((response) => {
+                return response.json()
+            }).then(async (result) => {
+                console.log(result?.data?.tender?.data, 'alltenderloadmore');
+                if (result?.data?.tender?.data) {
+                    let lastTenders = result?.data?.tender?.data;
+                    let updatedTenderList = [...this.state.job_tender_info, ...lastTenders];
+                    console.log(updatedTenderList, 'updatedTenderList')
+                    this.setState({
+                        job_tender_info: updatedTenderList
+                    })
+
+                    if (result?.data?.tender?.next_page_url !== undefined && result?.data?.tender?.next_page_url  !== null) {
+                        this.setState({
+                            next_page_url: result?.data?.tender?.next_page_url
+                        })
+                    } else {
+                        this.setState({
+                            next_page_url: null
+                        })
+                        console.log("No more pages to load");
+                    }
+                }
+
+
+            })
+        } catch (e) {
+        }
+
+    };
+
+
+    renderItem = ({item, index}) => {
+        if (item?.reklam) {
+
+            return (
+                <View>
+                    <View
+                        key={index}
+                        style={styles.selected_product_info_main_wrapper}
+                    >
+
+                        <View style={styles.product_owner_info_rating_info_main_wrapper}>
+                            <View style={styles.product_owner_info_wrapper}>
+                                <View style={styles.product_owner_img}>
+                                    <Image style={styles.product_owner_img_child}  source={{uri: this.state.image_path + item?.author_tender?.photo }} />
+
+                                </View>
+                                <View style={styles.product_owner_name_box}>
+                                    <Text style={styles.product_owner_name}>{item?.author_tender?.name} {item?.author_tender?.surname}</Text>
+                                </View>
+
+                            </View>
+
+                            <View style={styles.product_owner_beginning_work_hour_title_info_box}>
+                                <Text style={styles.product_owner_beginning_work_hour_title}>Начало работы</Text>
+                                <View style={styles.product_owner_beginning_work_hour_date_info_box}>
+                                    <Text style={styles.product_owner_beginning_work_hour_date_info}>{item?.date_time}</Text>
+
+                                </View>
+
+                            </View>
+                        </View>
+
+                        <Text style={styles.product_main_info}  numberOfLines={5} ellipsizeMode='tail'>
+                            {item?.description}
+                        </Text>
+
+                        <ScrollView horizontal={true} nestedScrollEnabled = {true} style={{width: '100%', marginBottom: 15}}>
+
+                            {item?.tender.map((product_img, index) => {
+                                return (
+                                    <View key={index} style={[styles.product_img, {width: 140, height: 90, marginRight: 10}]}>
+                                        <Image style={[styles.product_img_child, {width: '100%', height: '100%'}]}  source={{uri: this.state.image_path + product_img?.photo }} />
+                                    </View>
+                                )
+                            })}
+                        </ScrollView>
+
+                        <View style={styles.product_city_street_info_btn_wrapper}>
+                            <View style={styles.product_city_street_info_box}>
+                                <Text style={styles.product_city_info}>Г. {item?.city_name}</Text>
+                                <Text style={styles.product_street_info}>ул. {item?.street}</Text>
+                            </View>
+
+                            {item?.tender_order_message_key?.length > 0
+
+                                ?
+                                <View style={styles.product_responce_btn}>
+                                    <Text style={styles.product_responce_btn_text}>Вы откликнулись</Text>
+                                </View>
+                                :
+                                <View>
+                                    {this.state.balance < 0 ?
+                                        <TouchableOpacity style={[styles.product_responce_btn, {opacity: 0.6}]} disabled={true}>
+                                            <Text style={styles.product_responce_btn_text}>Откликнутся</Text>
+                                        </TouchableOpacity>
+                                        :
+                                        <TouchableOpacity style={styles.product_responce_btn} onPress={() => {this.responceToTender(item)}}>
+                                            <Text style={styles.product_responce_btn_text}>Откликнутся</Text>
+                                        </TouchableOpacity>
+                                    }
+
+
+                                </View>
 
 
 
-        });
+                            }
 
-    }
+                        </View>
+                    </View>
 
-    componentWillUnmount() {
-        // Remove the event listener
-        if (this.focusListener) {
-            this.focusListener();
+                    {/*{reklam_first != null &&*/}
+
+                    <View  style={[styles.selected_product_info_main_wrapper, ]}>
+                        <View style={styles.reklam_name_address_wrapper}>
+                            <Text style={styles.reklam_name}>{item.reklam.name}</Text>
+                            <Text style={styles.reklam_address}>
+                                Реклама
+                            </Text>
+                        </View>
+                        {item.reklam.description  &&
+
+                        <Text style={styles.reklam_decription}>{item.reklam.description}</Text>
+                        }
+
+                        <ScrollView horizontal={true} nestedScrollEnabled = {true} style={{width: '100%', marginBottom: 15}}>
+
+                            {item.reklam.reklam_photo.map((reklam_img, index) => {
+                                return (
+                                    <View style={[styles.transport_img]} key={index}>
+                                        <Image style={[styles.transport_img_child]}  source={{uri: this.state.image_path + reklam_img.photo}} />
+                                    </View>
+                                )
+                            })}
+                        </ScrollView>
+
+                        <View style={styles.reklam_info_details_main_wrapper}>
+                            <View style={styles.reklam_info_details_child_item}>
+                                <View style={styles.reklam_info_details_child_item_title_text_wrapper}>
+                                    <Text style={styles.reklam_info_details_child_item_title}>Адрес:</Text>
+                                    <Text style={styles.reklam_info_details_child_item_text}> {item.reklam.address}</Text>
+                                </View>
+                                <View style={styles.reklam_info_details_child_item_title_text_wrapper}>
+                                    <Text style={styles.reklam_info_details_child_item_title}>Сайт:</Text>
+                                    <Text style={styles.reklam_info_details_child_item_text}> {item.reklam.url}</Text>
+                                </View>
+
+
+                            </View>
+                            <View style={styles.reklam_info_details_child_item}>
+                                <View style={styles.reklam_info_details_child_item_title_text_wrapper}>
+                                    <Text style={styles.reklam_info_details_child_item_title}>Телефон:</Text>
+                                    <Text style={styles.reklam_info_details_child_item_text}> {item.reklam.phone_one}</Text>
+                                </View>
+                                <View style={styles.reklam_info_details_child_item_title_text_wrapper}>
+                                    <Text style={styles.reklam_info_details_child_item_title}>E-mail:</Text>
+                                    <Text style={styles.reklam_info_details_child_item_text}> {item.reklam.email}</Text>
+                                </View>
+                            </View>
+                        </View>
+
+
+                    </View>
+                    {/*}*/}
+                </View>
+            )
+
+        } else {
+            return  (
+                <View
+                    key={index}
+                    style={styles.selected_product_info_main_wrapper}
+                >
+
+                    <View style={styles.product_owner_info_rating_info_main_wrapper}>
+                        <View style={styles.product_owner_info_wrapper}>
+                            <View style={styles.product_owner_img}>
+                                <Image style={styles.product_owner_img_child}  source={{uri: this.state.image_path + item?.author_tender?.photo }} />
+
+                            </View>
+                            <View style={styles.product_owner_name_box}>
+                                <Text style={styles.product_owner_name}>{item?.author_tender?.name} {item?.author_tender?.surname}</Text>
+                            </View>
+
+                        </View>
+
+                        <View style={styles.product_owner_beginning_work_hour_title_info_box}>
+                            <Text style={styles.product_owner_beginning_work_hour_title}>Начало работы</Text>
+                            <View style={styles.product_owner_beginning_work_hour_date_info_box}>
+                                <Text style={styles.product_owner_beginning_work_hour_date_info}>{item?.date_time}</Text>
+
+                            </View>
+
+                        </View>
+                    </View>
+
+                    <Text style={styles.product_main_info}  numberOfLines={5} ellipsizeMode='tail'>
+                        {item?.description}
+                    </Text>
+
+                    <ScrollView horizontal={true} nestedScrollEnabled = {true} style={{width: '100%', marginBottom: 15}}>
+
+                        {item?.tender.map((product_img, index) => {
+                            return (
+                                <View key={index} style={[styles.product_img, {width: 140, height: 90, marginRight: 10}]}>
+                                    <Image style={[styles.product_img_child, {width: '100%', height: '100%'}]}  source={{uri: this.state.image_path + product_img?.photo }} />
+                                </View>
+                            )
+                        })}
+                    </ScrollView>
+
+                    <View style={styles.product_city_street_info_btn_wrapper}>
+                        <View style={styles.product_city_street_info_box}>
+                            <Text style={styles.product_city_info}>Г. {item?.city_name}</Text>
+                            <Text style={styles.product_street_info}>ул. {item?.street}</Text>
+                        </View>
+
+                        {item?.tender_order_message_key?.length > 0
+
+                            ?
+                            <View style={styles.product_responce_btn}>
+                                <Text style={styles.product_responce_btn_text}>Вы откликнулись</Text>
+                            </View>
+                            :
+                            <View>
+                                {this.state.balance < 0 ?
+                                    <TouchableOpacity style={[styles.product_responce_btn, {opacity: 0.6}]} disabled={true}>
+                                        <Text style={styles.product_responce_btn_text}>Откликнутся</Text>
+                                    </TouchableOpacity>
+                                    :
+                                    <TouchableOpacity style={styles.product_responce_btn} onPress={() => {this.responceToTender(item)}}>
+                                        <Text style={styles.product_responce_btn_text}>Откликнутся</Text>
+                                    </TouchableOpacity>
+                                }
+
+
+                            </View>
+
+
+
+                        }
+
+                    </View>
+                </View>
+            )
         }
 
     }
+
+
 
     getNotificationsCount = async () => {
         let userToken = await AsyncStorage.getItem('userToken');
@@ -154,7 +455,6 @@ export default class App extends Component {
                 return response.json()
             }).then( async (response) => {
 
-                console.log(response, 'notiCount')
                 if (response?.status === true) {
                     this.setState({
                         count_notification: response.count_notification,
@@ -293,9 +593,7 @@ export default class App extends Component {
 
                     </View>
 
-                    <ScrollView style={styles.catalogue_main_wrapper} >
-
-                        <View style={styles.catalogue_lists_items_wrapper}>
+                        <View style={styles.catalogue_main_wrapper}>
 
                             {/*{this.state.job_tender_info.length == 0 &&*/}
                             {/*  <View style={styles.tender_not_found_title_wrapper}>*/}
@@ -303,108 +601,27 @@ export default class App extends Component {
                             {/*  </View>*/}
 
                             {/*}*/}
+
                             {this.state.job_tender_info.length > 0 ?
-                                <View style={{width: '100%'}}>
-                                    {this.state.job_tender_info.map((selected_product, index) => {
-
-                                        return (
-
-                                            <View
-                                                key={index}
-                                                style={styles.selected_product_info_main_wrapper}
-                                            >
-
-                                                <View style={styles.product_owner_info_rating_info_main_wrapper}>
-                                                    <View style={styles.product_owner_info_wrapper}>
-                                                        <View style={styles.product_owner_img}>
-                                                            <Image style={styles.product_owner_img_child}  source={{uri: this.state.image_path + selected_product.author_tender.photo }} />
-
-                                                        </View>
-                                                        <View style={styles.product_owner_name_box}>
-                                                            <Text style={styles.product_owner_name}>{selected_product.author_tender.name} {selected_product.author_tender.surname}</Text>
-                                                        </View>
-
-                                                    </View>
-
-                                                    <View style={styles.product_owner_beginning_work_hour_title_info_box}>
-                                                        <Text style={styles.product_owner_beginning_work_hour_title}>Начало работы</Text>
-                                                        <View style={styles.product_owner_beginning_work_hour_date_info_box}>
-                                                            <Text style={styles.product_owner_beginning_work_hour_date_info}>{selected_product.date_time}</Text>
-
-                                                        </View>
-
-                                                    </View>
-                                                </View>
-
-                                                <Text style={styles.product_main_info}  numberOfLines={5} ellipsizeMode='tail'>
-                                                    {selected_product.description}
-                                                </Text>
-
-                                                <ScrollView horizontal={true} nestedScrollEnabled = {true} style={{width: '100%', marginBottom: 15}}>
-
-                                                    {selected_product.tender.map((product_img, index) => {
-                                                        return (
-                                                            <View key={index} style={[styles.product_img, {width: 140, height: 90, marginRight: 10}]}>
-                                                                <Image style={[styles.product_img_child, {width: '100%', height: '100%'}]}  source={{uri: this.state.image_path + product_img.photo }} />
-                                                            </View>
-                                                        )
-                                                    })}
-                                                </ScrollView>
-
-                                                <View style={styles.product_city_street_info_btn_wrapper}>
-                                                    <View style={styles.product_city_street_info_box}>
-                                                        <Text style={styles.product_city_info}>Г. {selected_product.city_name}</Text>
-                                                        <Text style={styles.product_street_info}>ул. {selected_product.street}</Text>
-                                                    </View>
-
-                                                    {selected_product.tender_order_message_key.length > 0
-
-                                                        ?
-                                                        <View style={styles.product_responce_btn}>
-                                                            <Text style={styles.product_responce_btn_text}>Вы откликнулись</Text>
-                                                        </View>
-                                                        :
-                                                        <View>
-                                                            {this.state.balance < 0 ?
-                                                                <TouchableOpacity style={[styles.product_responce_btn, {opacity: 0.6}]} disabled={true}>
-                                                                    <Text style={styles.product_responce_btn_text}>Откликнутся</Text>
-                                                                </TouchableOpacity>
-                                                                :
-                                                                <TouchableOpacity style={styles.product_responce_btn} onPress={() => {this.responceToTender(selected_product)}}>
-                                                                    <Text style={styles.product_responce_btn_text}>Откликнутся</Text>
-                                                                </TouchableOpacity>
-                                                            }
-
-
-                                                        </View>
-
-
-
-                                                    }
-
-                                                </View>
-                                            </View>
-
-
-
-                                        );
-                                    })}
-                                </View>
+                                <FlatList
+                                    data={this.state.job_tender_info}
+                                    renderItem={this.renderItem}
+                                    keyExtractor={(item, index) => index.toString()}
+                                    onEndReached={() => this.loadMoreTenders()}
+                                    onEndReachedThreshold={0.5}
+                                    onRefresh={this.handleRefresh}
+                                    refreshing={this.state.refreshing}
+                                    style={{
+                                        width: '100%', height: '100%',
+                                    }}
+                                />
                                 :
                                 <View style={{justifyContent: 'center', alignSelf: 'center', alignItems: 'center', paddingTop: 100}}>
                                     <Text style={{fontWeight: '700',fontSize: 20, color: '#000000',}}>Ничего не найдено</Text>
                                 </View>
                             }
 
-
-
-
-
-
                         </View>
-
-
-                    </ScrollView>
 
                     <View style={styles.footer}>
                         <TouchableOpacity style={[styles.footer_btn, {position: 'relative'}]} onPress={() => {this.redirectToExecutorNotifications()}}>
@@ -501,6 +718,7 @@ const styles = StyleSheet.create({
         width: '100%',
         paddingBottom: 50,
         paddingHorizontal: 20,
+
     },
 
     job_tender_header: {
@@ -999,6 +1217,76 @@ const styles = StyleSheet.create({
     },
     footer_btn: {
         height: 38,
-    }
+    },
+    reklam_name_address_wrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+        width: '100%',
+    },
+    reklam_name: {
+        color: '#FF6600',
+        fontWeight: '400',
+        fontSize: 20,
+
+    },
+    reklam_address: {
+        color: '#333333',
+        fontWeight: '400',
+        fontSize: 14,
+        alignItems: 'flex-end',
+        justifyContent: 'flex-end',
+        textAlign: 'right'
+    },
+
+    reklam_decription: {
+        color: '#333333',
+        fontWeight: '400',
+        fontSize: 16,
+        marginBottom: 10,
+    },
+    reklam_info_details_child_item_text: {
+        color: '#333333',
+        fontWeight: '400',
+        fontSize: 10,
+        flex: 1
+    },
+    reklam_info_details_child_item_title: {
+        color: '#333333',
+        fontWeight: '500',
+        fontSize: 12,
+        marginRight: 3,
+
+    },
+    reklam_info_details_child_item_title_text_wrapper: {
+        // flexDirection: 'row',
+        width: '49%',
+        alignItems: 'flex-start',
+        marginBottom: 3,
+
+    },
+    reklam_info_details_main_wrapper: {
+        width: '100%',
+
+    },
+    reklam_info_details_child_item: {
+        width: '100%',
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+
+    },
+    transport_img: {
+        width: 140,
+        height: 92,
+        marginRight: 10,
+    },
+    transport_img_child: {
+        width: '100%',
+        height: '100%',
+        resizeMode: 'cover',
+        borderRadius: 10,
+    },
 
 });
